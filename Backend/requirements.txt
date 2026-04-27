@@ -6,3 +6,6 @@ groq
 fastapi
 uvicorn
 python-dotenv
+twilio
+google-auth
+google-api-python-client
