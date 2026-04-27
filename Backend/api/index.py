@@ -123,71 +123,19 @@ def read_root():
 
 @app.post("/register")
 async def register_user(user: UserData):
-    global sheet
-    
-    # 1. Check if Google Sheet is connected
+    global sheet  # YE LINE SABSE UPAR HONI CHAHIYE
+
+    # Ab baqi saara kaam iske niche hoga
     if sheet is None:
-        sheet = get_gsheet() # Dobara koshish karein
-        if sheet is None:
-            raise HTTPException(status_code=500, detail="Error: Google Sheet is not connected. Check your credentials_json.")
-
-    try:
-        # 2. Check for duplicate Email/Phone
         try:
-            emails = [e.lower().strip() for e in sheet.col_values(2)]
-            phones = sheet.col_values(3)
+            sheet = get_gsheet()
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error reading from Google Sheet: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Google Sheet Connection Failed: {str(e)}")
 
-        if user.email.lower().strip() in emails:
-            raise HTTPException(status_code=400, detail="Email already registered!")
-        
-        if str(user.phone) in phones:
-            raise HTTPException(status_code=400, detail="Phone number already registered!")
+    if sheet is None:
+        raise HTTPException(status_code=500, detail="Error: Google Sheet is not connected.")
 
-        # 3. Append Data
-        try:
-            new_row = [user.name, user.email, user.phone, "Not Replied"]
-            sheet.append_row(new_row)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error adding row to Sheet: {str(e)}")
-        
-        # 4. Try sending Welcome Email
-        try:
-            send_welcome_email(user.email, user.name)
-        except Exception as e:
-            print(f"SMTP Warning: {e}") # Ispe crash nahi karenge, sirf log karenge
-
-        # 5. Try sending WhatsApp
-        try:
-            whatsapp_body = f"Assalam-o-Alaikum {user.name}! Humne aapka inquiry receive kar li hai."
-            send_whatsapp_msg(user.phone, whatsapp_body)
-        except Exception as e:
-            print(f"WhatsApp Warning: {e}")
-
-        return {"message": "Success", "status": "User registered and sheet updated"}
-        
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        print(f"❌ Full Register Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Unexpected System Error: {str(e)}")
-        
-    global sheet
-    if not sheet: sheet = get_gsheet() # Re-connect if lost
-    
-    try:
-        emails = [e.lower().strip() for e in sheet.col_values(2)]
-        if user.email.lower().strip() in emails:
-            raise HTTPException(status_code=400, detail="Email already registered!")
-
-        sheet.append_row([user.name, user.email, user.phone, "Not Replied"])
-        send_welcome_email(user.email, user.name)
-        send_whatsapp_msg(user.phone, f"Assalam-o-Alaikum {user.name}! Inquiry received.")
-        return {"message": "Success"}
-    except Exception as e:
-        print(f"❌ Register Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # ... baqi ka code (duplicates check, append row, etc.)
 
 # Yeh endpoint ab manual ya Vercel Cron se hit hoga
 @app.get("/check-replies")
