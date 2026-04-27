@@ -34,7 +34,8 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 try:
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-    gs_client = gspread.authorize(creds)
+    base_path = os.path.dirname(os.path.dirname(__file__))
+    credentials_path = os.path.join(base_path, 'credentials.json')
     sheet = gs_client.open("Email Automation with python").sheet1
     print("✅ Google Sheets connected successfully!")
 except Exception as e:

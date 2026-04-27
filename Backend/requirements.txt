@@ -7,3 +7,4 @@ groq
 python-multipart
 python-dotenv
 apscheduler
+email-validator
