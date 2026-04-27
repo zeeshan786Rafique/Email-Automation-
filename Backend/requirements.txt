@@ -1,10 +1,8 @@
-fastapi
-uvicorn
+email-validator
+pydantic[email]
 gspread
 oauth2client
-twilio
 groq
-python-multipart
+fastapi
+uvicorn
 python-dotenv
-apscheduler
-email-validator
