@@ -13,7 +13,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 # Scheduler ko Vercel par nikal dena behtar hai (Cron Jobs use karein)
-from whatsapp_handler import send_whatsapp_msg
+from api.whatsapp_handler import send_whatsapp_msg
 
 load_dotenv()
 
