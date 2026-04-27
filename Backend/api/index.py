@@ -32,17 +32,23 @@ def get_gsheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         
-        # 1. Pehle Environment Variable check karein (Sabse behtareen tareeqa)
-        creds_json = os.getenv("GOOGLE_CREDENTIALS")
+        # 1. Vercel dashboard wala sahi variable name use karein
+        creds_json = os.getenv("credentials_json")
         
         if creds_json:
             creds_dict = json.loads(creds_json)
+            
+            # 2. Vercel ke liye Private Key formatting fix (Bohat zaroori!)
+            if "private_key" in creds_dict:
+                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+            
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         else:
-            # 2. Agar local pe hain to file dhoondein
+            # Local environment ke liye file check karein
             creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
             
         gs_client = gspread.authorize(creds)
+        # Sheet ka naam check karein ke spelling theek hain
         return gs_client.open("Email Automation with python").sheet1
     except Exception as e:
         print(f"❌ Sheets Connection Error: {e}")
