@@ -28,33 +28,32 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 # ==========================================
 # GOOGLE SHEETS SETUP (Vercel Friendly)
 # ==========================================
+# 1. Pehle function define karein (Debug version)
 def get_gsheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds_json = os.getenv("credentials_json") #
         
-        # Vercel dashboard wala sahi variable name ('credentials_json') use karein
-        creds_json = os.getenv("credentials_json")
+        if not creds_json:
+            print("❌ Error: credentials_json environment variable not found!")
+            return None
+            
+        creds_dict = json.loads(creds_json)
         
-        if creds_json:
-            creds_dict = json.dumps(json.loads(creds_json)) # Sahi JSON format ke liye
-            creds_dict = json.loads(creds_json)
+        # Private key format fix
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
             
-            # Vercel ke liye Private Key formatting fix (Bohat zaroori!)
-            if "private_key" in creds_dict:
-                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-            
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        else:
-            # Local testing ke liye
-            creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-            
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         gs_client = gspread.authorize(creds)
+        
+        # Sheet ka naam check karein
         return gs_client.open("Email Automation with python").sheet1
     except Exception as e:
-        print(f"Error connecting to Sheets: {e}")
+        print(f"❌ Connection Detail Error: {str(e)}")
         return None
 
-# Global sheet variable
+# 2. Function ke BILKUL BAAD yeh line likhein (Location bilkul sahi hai)
 sheet = get_gsheet()
 
 # ==========================================
