@@ -31,33 +31,17 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 def get_gsheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds_json = os.getenv("credentials_json")
-        
-        if not creds_json:
-            print("❌ Error: credentials_json environment variable not found!")
-            return None
-            
-        # Error Fix: String ko dictionary mein convert karna lazmi hai
-        try:
-            creds_dict = json.loads(creds_json)
-        except Exception as json_err:
-            print(f"❌ JSON Parsing Error: {json_err}")
-            return None
-        
-        # Private key format fix for Vercel
-        if "private_key" in creds_dict:
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-            
-        # DICT pass karna hai, string nahi
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        gs_client = gspread.authorize(creds)
-        
-        return gs_client.open("Email Automation with python").sheet1
-    except Exception as e:
-        print(f"❌ Connection Detail Error: {str(e)}")
-        return None
 
-sheet = get_gsheet()
+        creds = ServiceAccountCredentials.from_json_keyfile_name(
+            "Backend/credentials.json", scope
+        )
+
+        gs_client = gspread.authorize(creds)
+        return gs_client.open("Email Automation with python").sheet1
+
+    except Exception as e:
+        print(f"❌ Connection Error: {str(e)}")
+        return None
 
 # ==========================================
 # UTILITY FUNCTIONS
