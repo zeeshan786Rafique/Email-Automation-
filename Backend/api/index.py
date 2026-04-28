@@ -7,7 +7,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+
+# 🛠️ FIX: Old oauth2client ki jagah modern Google Auth use kiya hai
+from google.oauth2.service_account import Credentials 
+
 import imaplib
 import email
 import smtplib
@@ -28,7 +31,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 # ==========================================
-# GLOBAL VARIABLE SETUP (NameError Fix)
+# GLOBAL VARIABLE SETUP
 # ==========================================
 sheet = None
 
@@ -44,14 +47,18 @@ def get_gsheet():
             print("❌ Error: credentials_json environment variable not found!")
             return None
             
-        # String ko dictionary mein convert karna
         creds_dict = json.loads(creds_json)
         
+        # 🛠️ FIX: Agar Vercel ne double stringify kar diya ho to isay dobara dict mein layein
+        if isinstance(creds_dict, str):
+            creds_dict = json.loads(creds_dict)
+            
         # Vercel Private Key Fix
         if "private_key" in creds_dict:
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").replace("\\\\n", "\n")
             
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        # 🛠️ FIX: Modern Authentication jo "str to a seekable bit stream" error nahi degi
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         gs_client = gspread.authorize(creds)
         
         return gs_client.open("Email Automation with python").sheet1
