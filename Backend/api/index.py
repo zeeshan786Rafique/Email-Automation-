@@ -1,6 +1,7 @@
 from groq import Groq
 import os
 import json
+import re
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,7 @@ import email
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
 # Scheduler ko Vercel par nikal dena behtar hai (Cron Jobs use karein)
 from api.whatsapp_handler import send_whatsapp_msg
 
@@ -26,26 +28,62 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 # ==========================================
+# GLOBAL VARIABLE SETUP (NameError Fix)
+# ==========================================
+sheet = None
+
+# ==========================================
 # GOOGLE SHEETS SETUP (Vercel Friendly)
 # ==========================================
 def get_gsheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
-        creds = ServiceAccountCredentials.from_json_keyfile_name(
-            "Backend/credentials.json", scope
-        )
-
+        creds_json = os.getenv("credentials_json")
+        
+        if not creds_json:
+            print("❌ Error: credentials_json environment variable not found!")
+            return None
+            
+        # String ko dictionary mein convert karna
+        creds_dict = json.loads(creds_json)
+        
+        # Vercel Private Key Fix
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+            
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         gs_client = gspread.authorize(creds)
+        
         return gs_client.open("Email Automation with python").sheet1
-
     except Exception as e:
-        print(f"❌ Connection Error: {str(e)}")
+        print(f"❌ Connection Detail Error: {str(e)}")
         return None
+
+# Initial connection attempt
+sheet = get_gsheet()
 
 # ==========================================
 # UTILITY FUNCTIONS
 # ==========================================
+
+def format_pakistani_phone(phone: str) -> str:
+    """Cleans and formats phone numbers to standard format for WhatsApp."""
+    if not phone:
+        return ""
+    
+    # Remove all non-numeric characters except +
+    cleaned = re.sub(r'[^\d+]', '', phone)
+    
+    if cleaned.startswith("+92"):
+        return cleaned
+    elif cleaned.startswith("92") and len(cleaned) == 12:
+        return "+" + cleaned
+    elif cleaned.startswith("03") and len(cleaned) == 11:
+        return "+92" + cleaned[1:]
+    elif cleaned.startswith("3") and len(cleaned) == 10:
+        return "+92" + cleaned
+    
+    return cleaned
 
 def analyze_sentiment(reply_text, user_name, user_phone):
     if not reply_text.strip():
@@ -62,9 +100,12 @@ def analyze_sentiment(reply_text, user_name, user_phone):
         category = chat_completion.choices[0].message.content.strip().replace("*", "").replace("'", "").replace('"', '').replace(".", "")
         
         if "Hot Lead" in category:
+            formatted_phone = format_pakistani_phone(user_phone)
+            # Admin Notification
             send_whatsapp_msg("+923091053298", f"📢 *New Hot Lead!*\nUser: {user_name}\nReply: {reply_text}")
-            if user_phone:
-                send_whatsapp_msg(user_phone, "Thank you for your interest! We will contact you soon.")
+            # User Notification
+            if formatted_phone:
+                send_whatsapp_msg(formatted_phone, "Thank you for your interest! We will contact you soon.")
         return category
     except Exception as e:
         print(f"❌ Groq API Error: {e}")
@@ -111,13 +152,15 @@ class UserData(BaseModel):
 
 @app.get("/")
 def read_root():
+    global sheet
+    # Vercel cold-start recovery
+    if sheet is None:
+        sheet = get_gsheet()
     return {"status": "Backend is Running", "sheets_connected": sheet is not None}
 
 @app.post("/register")
 async def register_user(user: UserData):
-    global sheet  # YE LINE SABSE UPAR HONI CHAHIYE
-
-    # Ab baqi saara kaam iske niche hoga
+    global sheet 
     if sheet is None:
         try:
             sheet = get_gsheet()
@@ -125,21 +168,37 @@ async def register_user(user: UserData):
             raise HTTPException(status_code=500, detail=f"Google Sheet Connection Failed: {str(e)}")
 
     if sheet is None:
-        raise HTTPException(status_code=500, detail="Error: Google Sheet is not connected.")
+        raise HTTPException(status_code=500, detail="Error: Google Sheet is not connected. Check Vercel logs.")
 
-    # ... baqi ka code (duplicates check, append row, etc.)
+    # Duplicate check and formatting
+    formatted_phone = format_pakistani_phone(user.phone)
+    existing_emails = sheet.col_values(2)
+    
+    if user.email in existing_emails:
+        return {"status": "User already exists", "email": user.email}
+        
+    try:
+        # Append data to sheet (Name, Email, Phone, Status)
+        sheet.append_row([user.name, user.email, formatted_phone, "Not Replied"])
+        send_welcome_email(user.email, user.name)
+        return {"status": "Success", "message": "User registered successfully!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to insert record: {str(e)}")
 
-# Yeh endpoint ab manual ya Vercel Cron se hit hoga
 @app.get("/check-replies")
 async def manual_check():
     global sheet
-    if not sheet: sheet = get_gsheet()
+    if sheet is None: 
+        sheet = get_gsheet()
     
+    if sheet is None:
+        return {"error": "Google Sheet not connected"}
+        
     try:
         mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(SENDER_EMAIL, SENDER_PASSWORD)
         mail.select("inbox")
-        status, messages = mail.search(None, 'UNSEEN') # Sirf unread check karein efficiency ke liye
+        status, messages = mail.search(None, 'UNSEEN') 
         
         if not messages[0]:
             return {"message": "No new replies"}
@@ -167,6 +226,11 @@ async def manual_check():
 @app.get("/stats")
 async def get_stats():
     global sheet
-    if not sheet: sheet = get_gsheet()
+    if sheet is None: 
+        sheet = get_gsheet()
+        
+    if sheet is None:
+        return {"error": "Google Sheet not connected"}
+        
     all_records = sheet.get_all_records()
     return {"total": len(all_records), "data": all_records}
