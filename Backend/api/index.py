@@ -211,12 +211,8 @@ async def register_user(user: UserData):
 @app.get("/check-replies")
 async def manual_check():
     global sheet
-    if sheet is None: 
-        sheet = get_gsheet()
+    if sheet is None: sheet = get_gsheet()
     
-    if sheet is None:
-        return {"error": "Google Sheet not connected"}
-        
     try:
         mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(SENDER_EMAIL, SENDER_PASSWORD)
@@ -224,9 +220,10 @@ async def manual_check():
         status, messages = mail.search(None, 'UNSEEN') 
         
         if not messages[0]:
-            return {"message": "No new replies"}
+            return {"message": "No new replies found at the moment."}
 
         all_emails = [x.lower().strip() for x in sheet.col_values(2)]
+        
         for num in messages[0].split():
             res, data = mail.fetch(num, "(RFC822)")
             msg = email.message_from_bytes(data[0][1])
@@ -234,46 +231,44 @@ async def manual_check():
 
             if sender in all_emails:
                 row_idx = all_emails.index(sender) + 1
-                if sheet.cell(row_idx, 4).value == "Not Replied":
+                # Wait logic: Only process if status is Not Replied or Follow-up
+                current_status = sheet.cell(row_idx, 4).value
+                
+                if current_status in ["Not Replied", "Follow-up"]:
                     body = get_email_body(msg)
                     name = sheet.cell(row_idx, 1).value
                     phone = sheet.cell(row_idx, 3).value
-                    decision = analyze_sentiment(body, name, phone)
+                    
+                    # Sentiment Analysis with 3 categories restored
+                    decision = analyze_sentiment(body, name, phone) 
                     sheet.update_cell(row_idx, 4, decision)
         
         mail.logout()
-        return {"status": "Done"}
+        return {"status": "Automation Cycle Completed"}
     except Exception as e:
         return {"error": str(e)}
+
 
 @app.get("/stats")
 async def get_stats():
     global sheet
-    if sheet is None: 
-        sheet = get_gsheet()
-        
-    if sheet is None:
-        return {"error": "Google Sheet not connected"}
-        
+    if sheet is None: sheet = get_gsheet()
+    if sheet is None: return {"error": "Sheet not connected"}
+    
     try:
-        # 1. Sheet se saara data lein
         all_records = sheet.get_all_records()
         
-        # 2. Calculations karein (Status column ke mutabiq)
-        total = len(all_records)
-        
-        # Jitne 'Hot Lead' ya 'Replied' hain unhe count karein
-        hot_leads = len([r for r in all_records if str(r.get("Status", "")).strip() in ["Hot Lead", "Replied"]])
-        
-        # Jitne 'Not Replied' hain unhe count karein
-        pending = len([r for r in all_records if str(r.get("Status", "")).strip() == "Not Replied"])
-        
-        # 3. Frontend ko pura data aur counts bhejein
+        # Original 3 Categories logic
+        hot_leads = [r for r in all_records if str(r.get("Status")).strip() == "Hot Lead"]
+        pending = [r for r in all_records if str(r.get("Status")).strip() in ["Not Replied", "Follow-up"]]
+        cold_leads = [r for r in all_records if str(r.get("Status")).strip() == "Cold Lead"]
+
         return {
-            "total": total, 
-            "hot_leads": hot_leads, 
-            "pending_followups": pending, 
+            "total": len(all_records),
+            "hot_leads": len(hot_leads),
+            "pending_followups": len(pending),
+            "cold_leads": len(cold_leads),
             "data": all_records
         }
     except Exception as e:
-        return {"error": str(e), "total": 0, "hot_leads": 0, "pending_followups": 0, "data": []}
+        return {"error": str(e)}
