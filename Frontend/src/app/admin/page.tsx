@@ -5,31 +5,49 @@ import axios from "axios";
 export default function AdminDashboard() {
   const [stats, setStats] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // Sahi Base URL (Bagair aakhir wale slash ke)
+  const API_URL = "https://emailautomation-tau.vercel.app";
+
+  const fetchStats = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/stats`);
+      console.log("Full Backend Response:", res.data); // Inspect Console mein check karne ke liye
+      setStats(res.data);
+    } catch (err) {
+      console.error("Fetch Error:", err);
+    }
+  };
 
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const res = await axios.get("http://localhost:8000/stats");
-        // 🔍 Console check: Is se aap Inspect Element > Console mein 
-        // dekh sakte hain ke backend se 'Email' aa raha hai ya kuch aur.
-        console.log("Backend Data:", res.data.data[0]); 
-        setStats(res.data);
-      } catch (err) {
-        console.error("Fetch Error:", err);
-      }
-    };
     fetchStats();
   }, []);
+
+  const handleCheckReplies = async () => {
+    setLoading(true);
+    try {
+      alert("Gmail check ho raha hai... is mein 10-15 seconds lag sakte hain.");
+      const res = await axios.get(`${API_URL}/check-replies`);
+      alert(res.data.message || "Replies check ho gayeen!");
+      await fetchStats(); // Stats refresh karein
+    } catch (err) {
+      console.error("Error checking replies:", err);
+      alert("Replies check karne mein masla aya.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!stats) return <div className="p-10 text-center">Loading Dashboard...</div>;
 
   // Safe Search logic
-  const filteredData = stats.data.filter((user: any) => {
+  const filteredData = stats.data?.filter((user: any) => {
     const userName = (user.Name || user.name || "").toLowerCase();
     const userEmail = (user.Email || user.email || "").toLowerCase();
     const search = searchTerm.toLowerCase();
     return userName.includes(search) || userEmail.includes(search);
-  });
+  }) || [];
 
   return (
     <div className="p-8 bg-gray-100 min-h-screen">
@@ -38,27 +56,43 @@ export default function AdminDashboard() {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-blue-500">
-          <p className="text-sm text-gray-500 font-bold uppercase">Total Registrations</p>
-          <h2 className="text-3xl font-bold">{stats.total}</h2>
+          <p className="text-sm text-black font-bold uppercase">Total Registrations</p>
+          <h2 className="text-3xl text-black font-bold">{stats.total || 0}</h2>
         </div>
+        
         <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-green-500">
-          <p className="text-sm text-gray-500 font-bold uppercase">Hot Leads / Replied</p>
-          <h2 className="text-3xl font-bold">{stats.replied}</h2>
+          <p className="text-sm text-black font-bold uppercase">Hot Leads / Replied</p>
+          {/* Backend key match: hot_leads */}
+          <h2 className="text-3xl font-bold text-black">{stats.hot_leads || 0}</h2>
         </div>
+        
         <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-yellow-500">
-          <p className="text-sm text-gray-500 font-bold uppercase">Pending / Follow-ups</p>
-          <h2 className="text-3xl font-bold">{stats.pending}</h2>
+          <p className="text-sm text-black font-bold uppercase">Pending / Follow-ups</p>
+          {/* Backend key match: pending_followups */}
+          <h2 className="text-3xl font-bold text-black">{stats.pending_followups || 0}</h2>
         </div>
       </div>
 
-      {/* Search & Table */}
+      {/* Search & Action Button */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <input
-          type="text"
-          placeholder="Search by name or email..."
-          className="w-full p-2 border border-gray-300 rounded-md mb-6 text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
+        <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
+          <input
+            type="text"
+            placeholder="Search by name or email..."
+            className="flex-1 p-2 border border-gray-300 rounded-md text-gray-900 focus:ring-2 focus:ring-blue-500 outline-none"
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          
+          <button 
+            onClick={handleCheckReplies}
+            disabled={loading}
+            className={`${
+              loading ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700"
+            } text-white px-6 py-2 rounded-md font-bold transition flex items-center justify-center`}
+          >
+            {loading ? "Checking..." : "Check New Replies 🔄"}
+          </button>
+        </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -78,9 +112,9 @@ export default function AdminDashboard() {
                   <td className="p-3">{user.Phone || user.phone || "N/A"}</td>
                   <td className="p-3">
                     <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      user.Status === 'Hot Lead' ? 'bg-green-100 text-green-700' : 
+                      (user.Status === 'Replied' || user.Status === 'Hot Lead') ? 'bg-green-100 text-green-700' : 
                       user.Status === 'Cold Lead' ? 'bg-red-100 text-red-700' : 
-                      user.Status === 'Follow-up' ? 'bg-yellow-100 text-yellow-700' : 
+                      (user.Status === 'Not Replied' || user.Status === 'Follow-up') ? 'bg-yellow-100 text-yellow-700' : 
                       'bg-gray-100 text-gray-700'
                     }`}>
                       {user.Status || "Not Replied"}

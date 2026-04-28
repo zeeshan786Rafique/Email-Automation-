@@ -7,6 +7,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 import gspread
+from pathlib import Path
+
+
+# 🛠️ Path Fix: .env file Backend root mein hai, to ye wahan se load karega
+env_path = Path(__file__).resolve().parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
 # 🛠️ FIX: Old oauth2client ki jagah modern Google Auth use kiya hai
 from google.oauth2.service_account import Credentials 
@@ -30,6 +36,13 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
+
+# 🛠️ Import Fix: Dono files same folder mein hain
+try:
+    from api.whatsapp_handler import send_whatsapp_msg
+except ImportError:
+    from whatsapp_handler import send_whatsapp_msg
+
 # ==========================================
 # GLOBAL VARIABLE SETUP
 # ==========================================
@@ -41,26 +54,29 @@ sheet = None
 def get_gsheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        
+        # 1. Vercel Check
         creds_json = os.getenv("credentials_json")
         
-        if not creds_json:
-            print("❌ Error: credentials_json environment variable not found!")
-            return None
+        if creds_json:
+            creds_dict = json.loads(creds_json)
+            if isinstance(creds_dict, str): creds_dict = json.loads(creds_dict)
+            if "private_key" in creds_dict:
+                creds_dict["private_key"] = creds_dict["private_key"].replace("\\\\n", "\n").replace("\\n", "\n")
+            creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        else:
+            # 2. Local File Check (Image ke mutabiq credentials.json parent folder mein hai)
+            # __file__ is index.py, .parent is api/, .parent.parent is Backend/
+            local_creds_path = Path(__file__).resolve().parent.parent / "credentials.json"
             
-        creds_dict = json.loads(creds_json)
-        
-        # 🛠️ FIX: Agar Vercel ne double stringify kar diya ho to isay dobara dict mein layein
-        if isinstance(creds_dict, str):
-            creds_dict = json.loads(creds_dict)
-            
-        # Vercel Private Key Fix
-        if "private_key" in creds_dict:
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n").replace("\\\\n", "\n")
-            
-        # 🛠️ FIX: Modern Authentication jo "str to a seekable bit stream" error nahi degi
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+            if local_creds_path.exists():
+                print(f"🏠 Found local credentials at: {local_creds_path}")
+                creds = Credentials.from_service_account_file(str(local_creds_path), scopes=scope)
+            else:
+                print(f"❌ Error: credentials.json not found at {local_creds_path}")
+                return None
+                
         gs_client = gspread.authorize(creds)
-        
         return gs_client.open("Email Automation with python").sheet1
     except Exception as e:
         print(f"❌ Connection Detail Error: {str(e)}")
@@ -239,5 +255,25 @@ async def get_stats():
     if sheet is None:
         return {"error": "Google Sheet not connected"}
         
-    all_records = sheet.get_all_records()
-    return {"total": len(all_records), "data": all_records}
+    try:
+        # 1. Sheet se saara data lein
+        all_records = sheet.get_all_records()
+        
+        # 2. Calculations karein (Status column ke mutabiq)
+        total = len(all_records)
+        
+        # Jitne 'Hot Lead' ya 'Replied' hain unhe count karein
+        hot_leads = len([r for r in all_records if str(r.get("Status", "")).strip() in ["Hot Lead", "Replied"]])
+        
+        # Jitne 'Not Replied' hain unhe count karein
+        pending = len([r for r in all_records if str(r.get("Status", "")).strip() == "Not Replied"])
+        
+        # 3. Frontend ko pura data aur counts bhejein
+        return {
+            "total": total, 
+            "hot_leads": hot_leads, 
+            "pending_followups": pending, 
+            "data": all_records
+        }
+    except Exception as e:
+        return {"error": str(e), "total": 0, "hot_leads": 0, "pending_followups": 0, "data": []}

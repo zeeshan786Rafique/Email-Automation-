@@ -6,6 +6,7 @@ import { RegisterSchema, RegisterInput } from "@/lib/schema";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
 
+
 export default function RegisterPage() {
   const {
     register,
@@ -18,7 +19,7 @@ export default function RegisterPage() {
   const onSubmit = async (data: RegisterInput) => {
     try {
       // Backend request
-      const response = await axios.post("http://localhost:8000/register", data);
+      const response = await axios.post("https://emailautomation-tau.vercel.app/register", data);
       
       if (response.status === 200) {
         toast.success(response.data.message || "Registration Successful!");
