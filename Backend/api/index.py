@@ -217,36 +217,44 @@ async def manual_check():
         mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(SENDER_EMAIL, SENDER_PASSWORD)
         mail.select("inbox")
-        status, messages = mail.search(None, 'UNSEEN') 
         
-        if not messages[0]:
-            return {"message": "No new replies found at the moment."}
+        # 1. Sirf un emails ko target karein jo hamari sheet mein "Not Replied" hain
+        all_records = sheet.get_all_records()
+        processed_count = 0
 
-        all_emails = [x.lower().strip() for x in sheet.col_values(2)]
-        
-        for num in messages[0].split():
-            res, data = mail.fetch(num, "(RFC822)")
-            msg = email.message_from_bytes(data[0][1])
-            sender = email.utils.parseaddr(msg['from'])[1].lower().strip()
+        for idx, row in enumerate(all_records):
+            # Row index sheet mein (idx + 2) hota hai kyunke 1st row header hai
+            row_num = idx + 2
+            current_status = str(row.get("Status", "")).strip()
+            user_email = row.get("Email", "").lower().strip()
 
-            if sender in all_emails:
-                row_idx = all_emails.index(sender) + 1
-                # Wait logic: Only process if status is Not Replied or Follow-up
-                current_status = sheet.cell(row_idx, 4).value
+            if current_status == "Not Replied":
+                # Gmail mein is specific email ke replies dhoondhein
+                status, messages = mail.search(None, f'FROM "{user_email}"')
                 
-                if current_status in ["Not Replied", "Follow-up"]:
-                    body = get_email_body(msg)
-                    name = sheet.cell(row_idx, 1).value
-                    phone = sheet.cell(row_idx, 3).value
+                if messages[0]:
+                    # Mil gaya! Sab se latest reply uthayein
+                    latest_msg_num = messages[0].split()[-1]
+                    res, msg_data = mail.fetch(latest_msg_num, "(RFC822)")
+                    msg = email.message_from_bytes(msg_data[0][1])
                     
-                    # Sentiment Analysis with 3 categories restored
-                    decision = analyze_sentiment(body, name, phone) 
-                    sheet.update_cell(row_idx, 4, decision)
-        
+                    body = get_email_body(msg)
+                    name = row.get("Name")
+                    phone = row.get("Phone")
+                    
+                    # AI Analysis (Hot Lead, Cold Lead, Follow-up)
+                    decision = analyze_sentiment(body, name, phone)
+                    
+                    # Sheet Update
+                    sheet.update_cell(row_num, 4, decision)
+                    processed_count += 1
+
         mail.logout()
-        return {"status": "Automation Cycle Completed"}
+        return {"status": "success", "processed": processed_count, "message": f"{processed_count} replies found and updated."}
+        
     except Exception as e:
-        return {"error": str(e)}
+        print(f"Error: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 
 @app.get("/stats")
