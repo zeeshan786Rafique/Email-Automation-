@@ -235,8 +235,7 @@ async def manual_check():
 
             if status_now == "Not Replied":
                 print(f"[LOG] 🔎 Searching inbox for replies from: {email_addr}", flush=True)
-                res, messages = mail.search(None, f'FROM "{email_addr}"')
-                
+                res, messages = mail.search(None, f'(FROM "{email_addr}" UNSEEN)')                
                 # If email bytes exist
                 if messages[0]:
                     latest_id = messages[0].split()[-1]
