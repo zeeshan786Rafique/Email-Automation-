@@ -176,38 +176,42 @@ async def register_user(user: User):
     if sheet is None: sheet = get_gsheet()
     
     print(f"\n--- 📥 NEW REGISTRATION ---", flush=True)
-    print(f"[LOG] Details -> Name: {user.name} | Email: {user.email} | Phone: {user.phone}", flush=True)
     
     try:
         all_data = sheet.get_all_records()
         
-        # Exact Matching using Regex (Lowercased Email & Digit-only Phone)
+        # 1. Incoming Data ko clean karein
         incoming_email = user.email.lower().strip()
-        incoming_phone_digits = extract_digits(user.phone)
+        # Phone se har kism ka character (+, -, space, zero) ura kar sirf aakhri 10 digits lein
+        incoming_phone_digits = extract_digits(user.phone)[-10:] 
         
-        existing_emails = [str(row.get("Email", "")).lower().strip() for row in all_data]
-        existing_phones_digits = [extract_digits(row.get("Phone", "")) for row in all_data]
+        print(f"[LOG] Validating: Email={incoming_email}, Clean Phone={incoming_phone_digits}", flush=True)
 
-        print("[LOG] 🔍 Validating Email & Phone...", flush=True)
-        if incoming_email in existing_emails:
-            print(f"[LOG] 🚫 Validation Failed: Email '{incoming_email}' already exists.", flush=True)
-            return {"status": "error", "message": "Email already registered."}
-        
-        if incoming_phone_digits in existing_phones_digits:
-            print(f"[LOG] 🚫 Validation Failed: Phone '{incoming_phone_digits}' already exists.", flush=True)
-            return {"status": "error", "message": "Phone number already exists."}
+        # 2. Sheet ka data check karein
+        for row in all_data:
+            # Email Check
+            if str(row.get("Email", "")).lower().strip() == incoming_email:
+                print(f"[LOG] 🚫 Duplicate Email Found", flush=True)
+                return {"status": "error", "message": "Email already registered."}
+            
+            # Phone Check (Sheet ke number ko bhi clean karke sirf aakhri 10 digits match karein)
+            sheet_phone = extract_digits(str(row.get("Phone", "")))[-10:]
+            if sheet_phone == incoming_phone_digits:
+                print(f"[LOG] 🚫 Duplicate Phone Found: {sheet_phone}", flush=True)
+                return {"status": "error", "message": "Phone number already exists."}
 
+        # Agar koi duplicate nahi mila to save karein
         new_row = [user.name, user.email, user.phone, "Not Replied"]
         sheet.append_row(new_row)
-        print(f"[LOG] ✅ User Data Saved to Google Sheets.", flush=True)
+        print(f"[LOG] ✅ Data Saved Successfully.", flush=True)
 
         send_email(user.email, user.name)
-        print(f"--- REGISTRATION COMPLETE ---\n", flush=True)
         return {"status": "success", "message": "Registration Successful!"}
 
     except Exception as e:
-        print(f"[ERROR] ❌ Registration Crash: {str(e)}", flush=True)
+        print(f"[ERROR] ❌ Crash: {str(e)}", flush=True)
         return {"status": "error", "message": str(e)}
+
 
 @app.get("/check-replies")
 async def manual_check():
