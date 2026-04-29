@@ -5,12 +5,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { RegisterSchema, RegisterInput } from "@/lib/schema";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
+import { useState } from "react";
 
 
 export default function RegisterPage() {
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<RegisterInput>({
     resolver: zodResolver(RegisterSchema),
@@ -23,6 +25,7 @@ export default function RegisterPage() {
       
       if (response.status === 200) {
         toast.success(response.data.message || "Registration Successful!");
+        reset();
       }
     } catch (error: any) {
       console.error("Submission Error:", error);
