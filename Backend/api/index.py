@@ -2,6 +2,7 @@ from groq import Groq
 import os
 import json
 import re
+import sys
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,11 +17,11 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# Path Fix: .env file Backend root mein hai, to ye wahan se load karega
+# Load environment variables
 env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
-# Import Fix: Dono files same folder mein hain
+# Import WhatsApp handler
 try:
     from api.whatsapp_handler import send_whatsapp_msg
 except ImportError:
@@ -56,20 +57,19 @@ def get_gsheet():
         else:
             local_creds_path = Path(__file__).resolve().parent.parent / "credentials.json"
             if local_creds_path.exists():
-                print(f"[LOG] 🏠 Found local credentials at: {local_creds_path}")
+                print(f"[LOG] 🏠 Local credentials found at: {local_creds_path}", flush=True)
                 creds = Credentials.from_service_account_file(str(local_creds_path), scopes=scope)
             else:
-                print(f"[ERROR] ❌ credentials.json not found at {local_creds_path}")
+                print(f"[ERROR] ❌ credentials.json not found!", flush=True)
                 return None
                 
         gs_client = gspread.authorize(creds)
-        print("[LOG] ✅ Google Sheets Connected Successfully.")
+        print("[LOG] ✅ Google Sheets Connected Successfully.", flush=True)
         return gs_client.open("Email Automation with python").sheet1
     except Exception as e:
-        print(f"[ERROR] ❌ Connection Detail Error: {str(e)}")
+        print(f"[ERROR] ❌ Sheet Connection Error: {str(e)}", flush=True)
         return None
 
-# Initial connection attempt
 sheet = get_gsheet()
 
 # ==========================================
@@ -78,17 +78,21 @@ sheet = get_gsheet()
 
 def format_pakistani_phone(phone: str) -> str:
     if not phone: return ""
-    cleaned = re.sub(r'[^\d+]', '', phone)
+    cleaned = re.sub(r'[^\d+]', '', str(phone))
     if cleaned.startswith("+92"): return cleaned
     elif cleaned.startswith("92") and len(cleaned) == 12: return "+" + cleaned
     elif cleaned.startswith("03") and len(cleaned) == 11: return "+92" + cleaned[1:]
     elif cleaned.startswith("3") and len(cleaned) == 10: return "+92" + cleaned
     return cleaned
 
+# Strict Digits Extractor for Duplicate Validation
+def extract_digits(phone: str) -> str:
+    return re.sub(r'\D', '', str(phone))
+
 def analyze_sentiment(reply_text, user_name, user_phone):
     if not reply_text.strip(): return "Replied"
     
-    print(f"[LOG] 🧠 Sending reply of {user_name} to AI for Analysis...")
+    print(f"[LOG] 🧠 AI Classifying reply from: {user_name}...", flush=True)
     try:
         chat_completion = groq_client.chat.completions.create(
             messages=[
@@ -99,17 +103,17 @@ def analyze_sentiment(reply_text, user_name, user_phone):
             temperature=0.1,
         )
         category = chat_completion.choices[0].message.content.strip().replace("*", "").replace("'", "").replace('"', '').replace(".", "")
-        print(f"[LOG] 🤖 AI Decision Output: {category}")
+        print(f"[LOG] 🤖 AI Decision: {category}", flush=True)
         
         if "Hot Lead" in category:
             formatted_phone = format_pakistani_phone(user_phone)
-            print(f"[LOG] 🔥 Hot Lead detected! Sending WhatsApp notifications...")
+            print(f"[LOG] 🔥 Hot Lead Action: Sending WhatsApp notification!", flush=True)
             send_whatsapp_msg("+923091053298", f"📢 *New Hot Lead!*\nUser: {user_name}\nReply: {reply_text}")
             if formatted_phone:
                 send_whatsapp_msg(formatted_phone, "Thank you for your interest! We will contact you soon.")
         return category
     except Exception as e:
-        print(f"[ERROR] ❌ Groq API Error: {e}")
+        print(f"[ERROR] ❌ AI Error: {e}", flush=True)
         return "Replied"
 
 def get_email_body(msg):
@@ -122,17 +126,21 @@ def get_email_body(msg):
                     break
         else:
             body = msg.get_payload(decode=True).decode(errors="ignore")
-        return body.split("On Sun, Apr")[0].split("-----Original Message-----")[0].strip()
-    except: return ""
+            
+        # Clean email trailing quotes
+        cleaned_body = body.split("On Sun, Apr")[0].split("-----Original Message-----")[0].split(">")[0].strip()
+        return cleaned_body
+    except Exception as e: 
+        print(f"[ERROR] Parsing body: {e}", flush=True)
+        return ""
 
 class User(BaseModel):
     name: str
     email: str
     phone: str
 
-# FIX: Function ka naam theek kar diya taake /register me error na aye
 def send_email(to_email, user_name):
-    print(f"\n[LOG] 📧 Preparing to send Welcome Email to: {to_email}")
+    print(f"[LOG] 📧 Sending Welcome Email to: {to_email}...", flush=True)
     try:
         message = MIMEMultipart()
         message["From"] = SENDER_EMAIL
@@ -141,15 +149,14 @@ def send_email(to_email, user_name):
         body = f"Hi {user_name},\n\nAapka registration successful ho gaya hai."
         message.attach(MIMEText(body, "plain"))
         
-        print("[LOG] 🔄 Connecting to SMTP Server (smtp.gmail.com)...")
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         server.send_message(message)
         server.quit()
-        print(f"[LOG] ✅ Welcome Email successfully sent to {to_email}!")
+        print(f"[LOG] ✅ Welcome Email Sent to {to_email}!", flush=True)
     except Exception as e: 
-        print(f"[ERROR] ❌ SMTP Error while sending email: {e}")
+        print(f"[ERROR] ❌ SMTP Email Error: {e}", flush=True)
 
 # ==========================================
 # API ENDPOINTS
@@ -167,35 +174,39 @@ def read_root():
 async def register_user(user: User):
     global sheet
     if sheet is None: sheet = get_gsheet()
-    print(f"\n==========================================")
-    print(f"[LOG] 📥 NEW REGISTRATION REQUEST RECEIVED")
-    print(f"[LOG] Name: {user.name} | Email: {user.email} | Phone: {user.phone}")
+    
+    print(f"\n--- 📥 NEW REGISTRATION ---", flush=True)
+    print(f"[LOG] Details -> Name: {user.name} | Email: {user.email} | Phone: {user.phone}", flush=True)
     
     try:
         all_data = sheet.get_all_records()
+        
+        # Exact Matching using Regex (Lowercased Email & Digit-only Phone)
+        incoming_email = user.email.lower().strip()
+        incoming_phone_digits = extract_digits(user.phone)
+        
         existing_emails = [str(row.get("Email", "")).lower().strip() for row in all_data]
-        existing_phones = [str(row.get("Phone", "")).strip() for row in all_data]
+        existing_phones_digits = [extract_digits(row.get("Phone", "")) for row in all_data]
 
-        print("[LOG] 🔍 Checking for duplicates in Google Sheets...")
-        if user.email.lower().strip() in existing_emails:
-            print(f"[LOG] 🚫 Registration Denied: Email {user.email} already exists.")
+        print("[LOG] 🔍 Validating Email & Phone...", flush=True)
+        if incoming_email in existing_emails:
+            print(f"[LOG] 🚫 Validation Failed: Email '{incoming_email}' already exists.", flush=True)
             return {"status": "error", "message": "Email already registered."}
         
-        if str(user.phone).strip() in existing_phones:
-            print(f"[LOG] 🚫 Registration Denied: Phone {user.phone} already exists.")
+        if incoming_phone_digits in existing_phones_digits:
+            print(f"[LOG] 🚫 Validation Failed: Phone '{incoming_phone_digits}' already exists.", flush=True)
             return {"status": "error", "message": "Phone number already exists."}
 
         new_row = [user.name, user.email, user.phone, "Not Replied"]
         sheet.append_row(new_row)
-        print(f"[LOG] ✅ Successfully saved {user.name} to Google Sheets.")
+        print(f"[LOG] ✅ User Data Saved to Google Sheets.", flush=True)
 
-        # Email bhejna
         send_email(user.email, user.name)
-        print(f"==========================================\n")
+        print(f"--- REGISTRATION COMPLETE ---\n", flush=True)
         return {"status": "success", "message": "Registration Successful!"}
 
     except Exception as e:
-        print(f"[ERROR] ❌ Registration Process Failed: {str(e)}")
+        print(f"[ERROR] ❌ Registration Crash: {str(e)}", flush=True)
         return {"status": "error", "message": str(e)}
 
 @app.get("/check-replies")
@@ -203,14 +214,12 @@ async def manual_check():
     global sheet
     if sheet is None: sheet = get_gsheet()
     
-    print(f"\n==========================================")
-    print("\n[LOG] 🔍 INITIATING GMAIL INBOX CHECK FOR REPLIES...")
+    print(f"\n--- 🔍 STARTING INBOX CHECK ---", flush=True)
     try:
-        print("[LOG] 🔄 Connecting to IMAP Server (imap.gmail.com)...")
         mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(SENDER_EMAIL, SENDER_PASSWORD)
         mail.select("inbox")
-        print("[LOG] ✅ Successfully connected and opened Inbox.")
+        print("[LOG] ✅ Gmail Inbox Connected.", flush=True)
         
         all_records = sheet.get_all_records()
         found_any = 0
@@ -218,36 +227,39 @@ async def manual_check():
         for idx, row in enumerate(all_records):
             row_num = idx + 2
             email_addr = row.get("Email", "").lower().strip()
-            status_now = row.get("Status", "").strip()
+            status_now = str(row.get("Status", "")).strip()
 
             if status_now == "Not Replied":
-                print(f"\n[LOG] 🔎 Checking replies from: {email_addr}")
+                print(f"[LOG] 🔎 Searching inbox for replies from: {email_addr}", flush=True)
                 res, messages = mail.search(None, f'FROM "{email_addr}"')
                 
+                # If email bytes exist
                 if messages[0]:
-                    print(f"[LOG] 📬 Email found from {email_addr}! Fetching details...")
                     latest_id = messages[0].split()[-1]
                     _, data = mail.fetch(latest_id, "(RFC822)")
                     msg = email.message_from_bytes(data[0][1])
                     reply_text = get_email_body(msg)
 
-                    print(f"[LOG] 📝 Extracted Reply: '{reply_text[:100]}...'")
+                    print(f"[LOG] 📬 Raw Reply Extracted: {reply_text[:50]}...", flush=True)
 
-                    # AI Classifier
-                    decision = analyze_sentiment(reply_text, row.get("Name"), row.get("Phone"))
-                    
-                    print(f"[LOG] ✍️ Updating Google Sheet Status to: {decision}")
-                    sheet.update_cell(row_num, 4, decision)
-                    found_any += 1
+                    if reply_text:
+                        decision = analyze_sentiment(reply_text, row.get("Name"), row.get("Phone"))
+                        
+                        # UPDATE STATUS IN COLUMN 4 (D)
+                        sheet.update_cell(row_num, 4, decision)
+                        print(f"[LOG] ✍️ Sheet Updated! Row {row_num}, Status -> {decision}", flush=True)
+                        found_any += 1
+                    else:
+                        print(f"[LOG] ⚠️ Email found but body was empty for {email_addr}", flush=True)
                 else:
-                    print(f"[LOG] 📭 No reply found yet from {email_addr}.")
+                    print(f"[LOG] 📭 No reply found yet from {email_addr}.", flush=True)
 
         mail.logout()
-        print(f"\n[LOG] ✅ Inbox check complete. Total statuses updated: {found_any}")
-        print(f"==========================================\n")
+        print(f"[LOG] ✅ Check Complete. Total Statuses Updated: {found_any}", flush=True)
+        print(f"--- END OF INBOX CHECK ---\n", flush=True)
         return {"status": "success", "message": f"Updated {found_any} users."}
     except Exception as e:
-        print(f"[ERROR] ❌ Manual Check Failed: {str(e)}")
+        print(f"[ERROR] ❌ Inbox Check Failed: {str(e)}", flush=True)
         return {"status": "error", "message": str(e)}
 
 @app.get("/stats")
